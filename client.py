@@ -1,7 +1,7 @@
-import os
 import socket
 import sys
 import select
+import os
 
 BUFFER_SIZE = 1024
 
@@ -33,6 +33,40 @@ class FileClient:
             self.connected = False
         except Exception as e:
             print(f"Error during disconnection: {str(e)}")
+
+    def send_file(self, filename):
+        """Send file with proper completion detection"""
+        try:
+            with open(filename, "rb") as f:
+                while True:
+                    chunk = f.read(BUFFER_SIZE)
+                    if not chunk:
+                        # Send end marker
+                        self.client.send(b"END_OF_FILE")
+                        break
+                    self.client.send(chunk)
+            return True
+        except Exception as e:
+            print(f"Error sending file: {str(e)}")
+            return False
+
+    def receive_file(self, filename):
+        """Receive file with proper completion detection"""
+        try:
+            with open(filename, "wb") as f:
+                while True:
+                    chunk = self.client.recv(BUFFER_SIZE)
+                    if b"END_OF_FILE" in chunk:
+                        # Write the part before END_OF_FILE marker
+                        f.write(chunk.split(b"END_OF_FILE")[0])
+                        break
+                    if not chunk:
+                        break
+                    f.write(chunk)
+            return True
+        except Exception as e:
+            print(f"Error receiving file: {str(e)}")
+            return False
             
     def handle_store_command(self, command):
         try:
@@ -42,63 +76,54 @@ class FileClient:
                 return
                 
             filename = parts[1]
-            
-            try:
-                with open(filename, "rb") as f:
-                    # Send store command
-                    self.client.send(command.encode())
-                    response = self.client.recv(BUFFER_SIZE).decode()
-                    
-                    if "Ready to receive" in response:
-                        print(response)
-                        # Send file data
-                        while True:
-                            bytes_read = f.read(BUFFER_SIZE)
-                            if not bytes_read:
-                                self.client.send(b'DONE')
-                                break
-                            self.client.send(bytes_read)
-                        
-                        # Get upload confirmation
-                        response = self.client.recv(BUFFER_SIZE).decode()
-                        print(response)
-                        if "Upload confirmed" in response:
-                            os.remove(filename)
-                            print(f"File {filename} removed from root directory.")
-                    else:
-                        print(f"Error: {response}")
-                        
-            except FileNotFoundError:
+            if not os.path.exists(filename):
                 print("Error: File not found.")
-            except Exception as e:
-                print(f"Error while sending file: {str(e)}")
+                return
+                
+            # Send store command
+            self.client.send(command.encode())
+            response = self.client.recv(BUFFER_SIZE).decode()
+            
+            if "Ready to receive" in response:
+                print(response)
+                if self.send_file(filename):
+                    # Wait for upload confirmation
+                    response = self.client.recv(BUFFER_SIZE).decode()
+                    print(response)
+                else:
+                    print("Error: File transfer failed.")
+            else:
+                print(f"Error: {response}")
                 
         except Exception as e:
             print(f"Error processing store command: {str(e)}")
             
     def handle_get_command(self, command):
         try:
+            parts = command.split()
+            if len(parts) != 2:
+                print("Error: Command parameters do not match or is not allowed.")
+                return
+                
+            filename = parts[1]
             self.client.send(command.encode())
             response = self.client.recv(BUFFER_SIZE).decode()
             
             if "Ready to send" in response:
-                filename = command.split()[1]
-                with open(filename, "wb") as f:
-                    while True:
-                        bytes_read = self.client.recv(BUFFER_SIZE)
-                        if bytes_read == b'DONE':
-                            break
-                        f.write(bytes_read)
-                print(f"File received from Server: {filename}")
+                print(response)
+                if self.receive_file(filename):
+                    print(f"File received from Server: {filename}")
+                else:
+                    print("Error: File transfer failed.")
             else:
                 print(response)
                 
         except Exception as e:
             print(f"Error receiving file: {str(e)}")
 
-    def wait_for_response(self):
+    def wait_for_response(self, timeout=5):
         """Wait for server response with timeout"""
-        ready = select.select([self.client], [], [], 5)  # 5 second timeout
+        ready = select.select([self.client], [], [], timeout)
         if ready[0]:
             return self.client.recv(BUFFER_SIZE).decode()
         return None
