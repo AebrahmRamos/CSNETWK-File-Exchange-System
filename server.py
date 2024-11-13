@@ -1,53 +1,29 @@
-import os
-import shutil
 import socket
 import sys
 import threading
+import os
+import shutil
 from datetime import datetime
 
 # Server constants
 SERVER_HOST = '127.0.0.1'
-SERVER_PORT = 12344
+SERVER_PORT = 12345
 BUFFER_SIZE = 1024
 
 class FileServer:
-    """
-    A class to represent a file server that handles file uploads and downloads from clients.
-    Attributes
-    ----------
-    server : socket.socket
-        The server socket.
-    clients : dict
-        Dictionary to store client handles and their corresponding socket and address.
-    connected_sockets : dict
-        Dictionary to store sockets and their corresponding client handles.
-    Methods
-    -------
-    start():
-        Starts the server and listens for incoming client connections.
-    receive_file(client_socket, filename):
-        Receives a file from a client and saves it to the server.
-    send_file(client_socket, filename):
-        Sends a file from the server to a client.
-    handle_client(client_socket, address):
-        Handles communication with a connected client.
-    """
     def __init__(self):
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.clients = {}  # Dictionary to store client handles and their corresponding socket and address
-        self.connected_sockets = {}  # Dictionary to store sockets and their corresponding client handles
+        self.clients = {}  # {handle: (socket, address)}
+        self.connected_sockets = {}  # {socket: handle}
         
         # Ensure uploads directory exists
-        os.makedirs("uploads", exist_ok=True)
+        if not os.path.exists("uploads"):
+            os.makedirs("uploads")
             
     def start(self):
         self.server.bind((SERVER_HOST, SERVER_PORT))
-        try:
-            self.server.bind((SERVER_HOST, SERVER_PORT))
-        except socket.error as e:
-            print(f"Error binding server to {SERVER_HOST}:{SERVER_PORT} - {e}")
-            sys.exit(1)
+        self.server.listen(5)
         print(f"Server is listening on {SERVER_HOST}:{SERVER_PORT}")
         
         while True:
@@ -109,7 +85,6 @@ class FileServer:
                 cmd = parts[0].lower()
                 
                 if cmd == "/join":
-
                     client_socket.send("Connection to the File Exchange Server is successful!".encode())
                         
                 elif cmd == "/register":
@@ -161,7 +136,7 @@ class FileServer:
                     if client_socket not in self.connected_sockets:
                         client_socket.send("Error: Please register first using /register <handle>".encode())
                         continue
-
+                    
                     if len(parts) != 2:
                         client_socket.send("Error: Command parameters do not match or is not allowed.".encode())
                         continue
@@ -211,5 +186,4 @@ if __name__ == "__main__":
         file_server.start()
     except KeyboardInterrupt:
         print("\nServer shutting down...")
-        file_server.shutdown()
         sys.exit(0)
